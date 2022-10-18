@@ -203,8 +203,10 @@ class Appr(object):
             hits=(pred==targets).float()
 
             # Log
-            total_loss+=loss.data.cpu().numpy()[0]*len(b)
-            total_acc+=hits.sum().data.cpu().numpy()[0]
+            # total_loss+=loss.data.cpu().numpy()[0]*len(b)
+            # total_acc+=hits.sum().data.cpu().numpy()[0]
+            total_loss += loss.item() * len(b)
+            total_acc += hits.sum()
             total_num+=len(b)
 
         return total_loss/total_num,total_acc/total_num

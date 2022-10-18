@@ -24,10 +24,16 @@ def get(seed=0, fixed_order=False, pc_valid=0):
         mean = (0.1307,)
         std = (0.3081,)
         dat = {}
-        dat['train'] = datasets.MNIST('../dat/', train=True, download=True, transform=transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize(mean, std)]))
-        dat['test'] = datasets.MNIST('../dat/', train=False, download=True, transform=transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize(mean, std)]))
+        dat['train'] = datasets.MNIST('../dat/',
+                                      train=True, download=True,
+                                      transform=transforms.Compose(
+                                          [transforms.ToTensor(),
+                                           transforms.Normalize(mean, std)]))
+        dat['test'] = datasets.MNIST('../dat/',
+                                     train=False, download=True,
+                                     transform=transforms.Compose(
+                                         [transforms.ToTensor(),
+                                          transforms.Normalize(mean, std)]))
         for i, r in enumerate(seeds):
             print(i, end=',')
             sys.stdout.flush()
@@ -48,8 +54,10 @@ def get(seed=0, fixed_order=False, pc_valid=0):
             for s in ['train', 'test']:
                 data[i][s]['x'] = torch.stack(data[i][s]['x']).view(-1, size[0], size[1], size[2])
                 data[i][s]['y'] = torch.LongTensor(np.array(data[i][s]['y'], dtype=int)).view(-1)
-                torch.save(data[i][s]['x'],os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'x.bin'))
-                torch.save(data[i][s]['y'],os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'y.bin'))
+                torch.save(data[i][s]['x'],
+                           os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'x.bin'))
+                torch.save(data[i][s]['y'],
+                           os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'y.bin'))
         print()
 
     else:
@@ -63,8 +71,10 @@ def get(seed=0, fixed_order=False, pc_valid=0):
             # Load
             for s in ['train', 'test']:
                 data[i][s] = {'x': [], 'y': []}
-                data[i][s]['x'] = torch.load(os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'x.bin'))
-                data[i][s]['y'] = torch.load(os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'y.bin'))
+                data[i][s]['x'] = torch.load(
+                    os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'x.bin'))
+                data[i][s]['y'] = torch.load(
+                    os.path.join(os.path.expanduser('../dat/binary_pmnist'), 'data' + str(r) + s + 'y.bin'))
 
     # Validation
     for t in data.keys():

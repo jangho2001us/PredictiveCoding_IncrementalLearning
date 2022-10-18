@@ -31,8 +31,8 @@ class Net(torch.nn.Module):
         y = []
         for t, i in self.taskcla:
             y.append(self.last[t](h))
-        return y
-    
+        return y, h
+
     def forward_fc3(self, x):
         h = x.view(x.size(0), -1)  # (bs, 784)
         h = self.drop(self.relu(self.fc1(h)))  # (bs, 800)
@@ -40,14 +40,3 @@ class Net(torch.nn.Module):
         h = self.drop(self.relu(self.fc3(h)))  # (bs, 800)
 
         return h
-
-# test
-# inputsize = [1, 28, 28]
-# taskcla = [(0, 5), (1, 5)]
-# model = Net(inputsize, taskcla)
-# print(model)
-# for name, param in model.named_parameters():
-#     print(name)
-# input = torch.randn(8, 1, 28, 28)
-# out = model(input)
-# print(out[0].shape, out[1].shape)

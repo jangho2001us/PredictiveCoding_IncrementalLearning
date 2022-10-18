@@ -3,7 +3,6 @@ import numpy as np
 import torch
 from torchvision import datasets, transforms
 
-
 ########################################################################################################################
 
 def get(seed=0, fixed_order=False, pc_valid=0):
@@ -15,36 +14,34 @@ def get(seed=0, fixed_order=False, pc_valid=0):
     mean = (0.1307,)
     std = (0.3081,)
     dat = {}
-    dat['train'] = datasets.MNIST('../dat/',
+    dat['train'] = datasets.FashionMNIST('../dat/',
                                   train=True, download=True,
                                   transform=transforms.Compose(
                                       [transforms.ToTensor(),
                                        transforms.Normalize(mean, std)]))
-    dat['test'] = datasets.MNIST('../dat/',
+    dat['test'] = datasets.FashionMNIST('../dat/',
                                  train=False, download=True,
                                  transform=transforms.Compose([transforms.ToTensor(),
                                                                transforms.Normalize(mean, std)]))
-    data[0] = {}
-    data[0]['name'] = 'mnist-0-4'
-    data[0]['ncla'] = 5
-    data[1] = {}
-    data[1]['name'] = 'mnist-5-9'
-    data[1]['ncla'] = 5
+
+    for n in range(5):
+        data[n] = {}
+        data[n]['name'] = 'fmnist5'
+        data[n]['ncla'] = 2
+        data[n]['train'] = {'x': [], 'y': []}
+        data[n]['test'] = {'x': [], 'y': []}
+
     for s in ['train', 'test']:
         loader = torch.utils.data.DataLoader(dat[s], batch_size=1, shuffle=False)
-        data[0][s] = {'x': [], 'y': []}
-        data[1][s] = {'x': [], 'y': []}
         for image, target in loader:
-            label = target.numpy()[0]
-            if label < 5:
-                data[0][s]['x'].append(image)
-                data[0][s]['y'].append(label)
-            else:
-                data[1][s]['x'].append(image)
-                data[1][s]['y'].append(label - 5)
+            n = target.numpy()[0]
+            nn = n // 2  # 0, 1, 2, 3, 4
+            data[nn][s]['x'].append(image)
+            data[nn][s]['y'].append(n % 2)  # 0, 1
+
 
     # "Unify" and save
-    for n in [0, 1]:
+    for n in [0, 1, 2, 3, 4]:
         for s in ['train', 'test']:
             data[n][s]['x'] = torch.stack(data[n][s]['x']).view(-1, size[0], size[1], size[2])
             data[n][s]['y'] = torch.LongTensor(np.array(data[n][s]['y'], dtype=int)).view(-1)

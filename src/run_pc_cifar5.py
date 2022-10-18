@@ -5,21 +5,21 @@ import time
 import numpy as np
 from datetime import datetime
 
-import utils
-
 import torch
 
-torch.set_num_threads(2)
+import utils
+
+torch.set_num_threads(4)
 
 tstart = time.time()
 
 # Arguments
-parser = argparse.ArgumentParser(description='Continual learning (hat)')
+parser = argparse.ArgumentParser(description='Continual learning (hat) with predictive coding')
 parser.add_argument('--root_save', type=str,
                     default='./checkpoint')
 parser.add_argument('--seed', type=int, default=0, help='(default=%(default)d)')
-parser.add_argument('--experiment', default='mnist2', type=str,
-                    choices=['mnist2', 'mnist5', 'pmnist', 'cifar', 'cifar5', 'split-cifar10', 'fmnist2'],
+parser.add_argument('--experiment', default='split-mnist2', type=str,
+                    choices=['mnist2', 'pmnist', 'cifar', 'cifar5', 'split-cifar10', 'mixture'],
                     help='(default=%(default)s)')
 parser.add_argument('--approach', default='sgd', type=str,
                     choices=['random', 'sgd', 'sgd-frozen', 'lwf', 'lfl', 'ewc', 'imm-mean', 'imm-mode', 'sgd-restart'],
@@ -28,23 +28,36 @@ parser.add_argument('--output', default='', type=str, required=False, help='(def
 parser.add_argument('--nepochs', default=1, type=int, required=False, help='(default=%(default)d)')
 parser.add_argument('--lr', default=0.05, type=float, required=False, help='(default=%(default)f)')
 parser.add_argument('--parameter', type=str, default='', help='(default=%(default)s)')
+
+# PC options
+parser.add_argument('--error-type', type=str, default='FixedPred',
+                    choices=['Strict', 'FixedPred', 'Exact', 'StochasticFixedPred'])
+parser.add_argument('--eta', type=float, default=0.1)
+parser.add_argument('--iter', type=int, default=20)
+
 parser.add_argument('--save_freq', type=int, default='10')
+
 args = parser.parse_args()
 
 # define save name
-header = os.path.join(args.root_save, datetime.now().strftime('%y%m%d_') + "bp")
+header = os.path.join(args.root_save, datetime.now().strftime('%y%m%d_') + "pc")
 args.output += '_' + args.experiment
 args.output += '_' + args.approach
 args.output += '_ep' + str(args.nepochs)
 args.output += '_lr' + str(args.lr)
 args.output += '_seed' + str(args.seed)
+args.output += '_type' + str(args.error_type)
+args.output += '_eta' + str(args.eta)
+args.output += '_iter' + str(args.iter)
 args.output = header + args.output
 if not os.path.exists(args.output):
     os.makedirs(args.output)
+
 print('=' * 100)
 print('Arguments =')
 for arg in vars(args):
     print('\t' + arg + ':', getattr(args, arg))
+print(args.output)
 print('=' * 100)
 
 ########################################################################################################################
@@ -61,8 +74,6 @@ else:
 # Args -- Experiment
 if args.experiment == 'mnist2':
     from dataloaders import mnist2 as dataloader
-elif args.experiment == 'mnist5':
-    from dataloaders import mnist5 as dataloader
 elif args.experiment == 'pmnist':
     from dataloaders import pmnist as dataloader
 elif args.experiment == 'cifar':
@@ -71,28 +82,36 @@ elif args.experiment == 'cifar5':
     from dataloaders import cifar5 as dataloader
 elif args.experiment == 'split-cifar10':
     from dataloaders import split_cifar10 as dataloader
-elif args.experiment == 'fmnist2':
-    from dataloaders import fmnist2 as dataloader
+elif args.experiment == 'mixture':
+    from dataloaders import mixture as dataloader
 
 # Args -- Approach
 if args.approach == 'random':
     from approaches import random as approach
 elif args.approach == 'sgd':
-    from approaches import sgd as approach
+    if args.experiment == 'cifar5':
+        from approaches_pc import sgd_cifar5 as approach
+    elif args.experiment == 'split-cifar10':
+        from approaches_pc import sgd_split_cifar10 as approach
+
 elif args.approach == 'sgd-restart':
     from approaches import sgd_restart as approach
 elif args.approach == 'sgd-frozen':
     from approaches import sgd_frozen as approach
 elif args.approach == 'lwf':
-    from approaches import lwf as approach
+    # from approaches import lwf as approach
+    from approaches_pc import lwf_mnist2 as approach
 elif args.approach == 'lfl':
     from approaches import lfl as approach
 elif args.approach == 'ewc':
-    from approaches import ewc as approach
+    # from approaches import ewc as approach
+    from approaches_pc import ewc_mnist2 as approach
 elif args.approach == 'imm-mean':
-    from approaches import imm_mean as approach
+    # from approaches import imm_mean as approach
+    from approaches_pc import imm_mean_mnist2 as approach
 elif args.approach == 'imm-mode':
-    from approaches import imm_mode as approach
+    # from approaches import imm_mode as approach
+    from approaches_pc import imm_mode_mnist2 as approach
 elif args.approach == 'progressive':
     from approaches import progressive as approach
 elif args.approach == 'pathnet':
@@ -105,12 +124,16 @@ elif args.approach == 'joint':
     from approaches import joint as approach
 
 # Args -- Network
-# if args.experiment == 'mnist2' or args.experiment == 'pmnist' or args.experiment == 'fmnist2' or:
-if args.experiment in ['mnist2', 'mnist5', 'pmnist', 'fmnist2']:
+if args.experiment == 'mnist2' or args.experiment == 'pmnist':
     if args.approach == 'hat' or args.approach == 'hat-test':
         from networks import mlp_hat as network
     else:
-        from networks import mlp as network
+        # from networks import mlp as network
+        from networks_pc import mlp as network
+
+elif args.experiment == 'cifar5' or args.experiment == 'split-cifar10':
+    from networks_pc import alexnet_cifar5 as network
+
 else:
     if args.approach == 'lfl':
         from networks import alexnet_lfl as network
@@ -132,12 +155,21 @@ print('Load data...')
 data, taskcla, inputsize = dataloader.get(seed=args.seed)
 print('Input size =', inputsize, '\nTask info =', taskcla)
 
+# make task info
+taskinfo = []
+for item in taskcla:
+    taskinfo.append(item[1])
+print('TaskInfo: ', taskinfo)
+
 # Inits
 print('Inits...')
-net = network.Net(inputsize, taskcla).cuda()
+# net = network.Net(inputsize, taskcla).cuda()
+net = network.Net.cuda()
 utils.print_model_report(net)
 
-appr = approach.Appr(net, nepochs=args.nepochs, lr=args.lr, args=args)
+appr = approach.Appr(net, taskinfo, nepochs=args.nepochs, lr=args.lr,
+                     error_type=args.error_type, eta=args.eta, iter=args.iter,
+                     args=args)
 print(appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
 print('-' * 100)
@@ -175,8 +207,6 @@ for t, ncla in taskcla:
         xvalid = data[t]['valid']['x'].cuda()
         yvalid = data[t]['valid']['y'].cuda()
         task = t
-
-    print('task: ', task)
 
     # Train
     appr.train(task, xtrain, ytrain, xvalid, yvalid)

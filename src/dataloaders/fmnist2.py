@@ -11,24 +11,24 @@ def get(seed=0, fixed_order=False, pc_valid=0):
     taskcla = []
     size = [1, 28, 28]
 
-    # MNIST
-    mean = (0.1307,)
-    std = (0.3081,)
+    # FMNIST
+    mean = (0.2859,)
+    std = (0.3530,)
     dat = {}
-    dat['train'] = datasets.MNIST('../dat/',
-                                  train=True, download=True,
-                                  transform=transforms.Compose(
-                                      [transforms.ToTensor(),
-                                       transforms.Normalize(mean, std)]))
-    dat['test'] = datasets.MNIST('../dat/',
-                                 train=False, download=True,
-                                 transform=transforms.Compose([transforms.ToTensor(),
-                                                               transforms.Normalize(mean, std)]))
+    dat['train'] = datasets.FashionMNIST('../dat/',
+                                         train=True, download=True,
+                                         transform=transforms.Compose(
+                                             [transforms.ToTensor(),
+                                              transforms.Normalize(mean, std)]))
+    dat['test'] = datasets.FashionMNIST('../dat/',
+                                        train=False, download=True,
+                                        transform=transforms.Compose([transforms.ToTensor(),
+                                                                      transforms.Normalize(mean, std)]))
     data[0] = {}
-    data[0]['name'] = 'mnist-0-4'
+    data[0]['name'] = 'fmnist-0-4'
     data[0]['ncla'] = 5
     data[1] = {}
-    data[1]['name'] = 'mnist-5-9'
+    data[1]['name'] = 'fmnist-5-9'
     data[1]['ncla'] = 5
     for s in ['train', 'test']:
         loader = torch.utils.data.DataLoader(dat[s], batch_size=1, shuffle=False)
@@ -63,5 +63,3 @@ def get(seed=0, fixed_order=False, pc_valid=0):
     data['ncla'] = n
 
     return data, taskcla, size
-
-########################################################################################################################

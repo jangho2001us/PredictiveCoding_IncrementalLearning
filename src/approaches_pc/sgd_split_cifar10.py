@@ -4,17 +4,22 @@ import torch
 
 import utils
 
+# import TorchSeq2PC as T2PC
+import TorchSeq2PC_CIFAR5 as T2PC
+
 
 class Appr(object):
 
-    def __init__(self, model,
+    def __init__(self, model, taskinfo,
                  nepochs=100, sbatch=64,
                  lr=0.05, lr_min=1e-4, lr_factor=3, lr_patience=5,
                  clipgrad=10000,
+                 error_type='FixedPred', eta=0.1, iter=20,
                  args=None):
 
         self.args = args
         self.model = model
+        self.taskinfo = taskinfo
 
         self.nepochs = nepochs
         self.sbatch = sbatch
@@ -23,6 +28,10 @@ class Appr(object):
         self.lr_factor = lr_factor
         self.lr_patience = lr_patience
         self.clipgrad = clipgrad
+
+        self.error_type = error_type
+        self.eta = eta
+        self.iter = iter
 
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = self._get_optimizer()
@@ -116,21 +125,31 @@ class Appr(object):
                 b = r[i:i + self.sbatch]
             else:
                 b = r[i:]
-            # (64, 1, 28, 28) ... mnist
+
             images = torch.autograd.Variable(x[b], volatile=False)
             targets = torch.autograd.Variable(y[b], volatile=False)
-            # print(images.shape, targets.shape)
 
             # Forward
-            outputs = self.model.forward(images)
-            output = outputs[t]
-            loss = self.criterion(output, targets)
+            # outputs = self.model.forward(images)
+            # output = outputs[t]
 
             # Backward
-            self.optimizer.zero_grad()
-            loss.backward()
+            # self.optimizer.zero_grad()
+            # loss.backward()
+            # torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
+            # self.optimizer.step()
+
+            # Forward with PC
+            vhat, Loss, dLdy, v, epsilon = T2PC.PCInferCL_CIFAR5(t, self.taskinfo, self.model, self.criterion,
+                                                                 images, targets,
+                                                                 self.error_type, self.eta, self.iter)
+
+            # Backward with PC
             torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
             self.optimizer.step()
+
+            self.model.zero_grad()
+            self.optimizer.zero_grad()
 
         return
 
@@ -152,95 +171,48 @@ class Appr(object):
             images = torch.autograd.Variable(x[b], volatile=True)
             targets = torch.autograd.Variable(y[b], volatile=True)
 
-            # Forward
-            outputs = self.model.forward(images)
-            output = outputs[t]  # (bs, 5)
-            loss = self.criterion(output, targets)
-            _, pred = output.max(1)
+            # from torchvision.utils import save_image, make_grid
+            # if i < 10:
+            #     path = '/home/jangho/data2/split_cifar10/image_task{}_{}.jpg'.format(t, i)
+            #     images_grid = make_grid(images)
+            #     save_image(images_grid, path)
+
+            # Forward with PC
+            outputs = self.model(images)
+
+            mask = T2PC.get_cifar_mask(self.taskinfo, t).cuda()
+
+            # calibrate target with task
+            targets = T2PC.get_cifar_target(self.taskinfo, t, targets).cuda()
+
+            outputs = mask * outputs
+
+            loss = self.criterion(outputs, targets)
+
+            _, pred = outputs.max(1)
             hits = (pred == targets).float()
 
             # Log
-            # total_loss+=loss.data.cpu().numpy()[0]*len(b)
             total_loss += loss.item() * len(b)  # jangho
-            # total_acc+=hits.sum().data.cpu().numpy()[0]
             total_acc += hits.sum()  # jangho
             total_num += len(b)
 
         return total_loss / total_num, total_acc / total_num
 
-    #
-    # def eval_fc3(self, t, x, y):
-    #     '''
-    #     return the ouptut of fc3 in mlp
-    #     '''
-    #     self.model.eval()
-    #
-    #     r = np.arange(x.size(0))
-    #     r = torch.LongTensor(r).cuda()
-    #     print('r: ', r)
-    #     # Loop batches
-    #     for i in range(0, len(r), self.sbatch):
-    #         if i + self.sbatch <= len(r):
-    #             b = r[i:i + self.sbatch]
-    #         else:
-    #             b = r[i:]
-    #         images = torch.autograd.Variable(x[b], volatile=True)
-    #         targets = torch.autograd.Variable(y[b], volatile=True)
-    #
-    #         # Forward until fc3
-    #         feats = self.model.forward_fc3(images)
-    #
-    #     if t == 1:
-    #         targets = targets + 5
-    #     print(feats.shape, targets.shape)
-    #
-    #     return feats, targets
-
-    def eval_fc3(self, x, y):
-        '''
-        return the output of fc3 in mlp
-        '''
-        self.model.eval()
-
-        r = np.arange(x.size(0))
-        r = torch.LongTensor(r).cuda()
-
-        # Loop batches
-        feats_all = []
-        targets_all = []
-        for i in range(0, len(r), self.sbatch):
-            if i + self.sbatch <= len(r):
-                b = r[i:i + self.sbatch]
-            else:
-                b = r[i:]
-            images = torch.autograd.Variable(x[b], volatile=True)
-            targets = torch.autograd.Variable(y[b], volatile=True)
-
-            # Forward until fc3
-            feat = self.model.forward_fc3(images)
-
-            feats_all.append(feat)
-            targets_all.append(targets)
-
-        feats = torch.stack(feats_all, dim=0)
-        targets = torch.stack(targets_all, dim=0)
-
-        feats = feats.view(-1, 800)
-        targets = targets.reshape(-1)
-
-        return feats, targets
 
 
 class ApprPlot(object):
 
-    def __init__(self, model,
+    def __init__(self, model, taskinfo,
                  nepochs=100, sbatch=64,
                  lr=0.05, lr_min=1e-4, lr_factor=3, lr_patience=5,
                  clipgrad=10000,
+                 error_type='FixedPred', eta=0.1, iter=20,
                  args=None):
 
         self.args = args
         self.model = model
+        self.taskinfo = taskinfo
 
         self.nepochs = nepochs
         self.sbatch = sbatch
@@ -249,6 +221,10 @@ class ApprPlot(object):
         self.lr_factor = lr_factor
         self.lr_patience = lr_patience
         self.clipgrad = clipgrad
+
+        self.error_type = error_type
+        self.eta = eta
+        self.iter = iter
 
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = self._get_optimizer()
@@ -348,17 +324,6 @@ class ApprPlot(object):
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
         }, is_best=True, filename='final_best_model.pth.tar')
-        #
-        # # calculate validation accuracy
-        # with torch.no_grad():
-        #     for u in range(t + 1):
-        #         xtest = data[u]['test']['x'].cuda()
-        #         ytest = data[u]['test']['y'].cuda()
-        #         test_loss, test_acc = self.eval(u, xtest, ytest)
-        #         print('>>> Intermediate Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.1f}% <<<'
-        #               .format(u, data[u]['name'], test_loss, 100 * test_acc))
-            # acc[t, u] = test_acc
-            # lss[t, u] = test_loss
 
         return
 
@@ -375,21 +340,31 @@ class ApprPlot(object):
                 b = r[i:i + self.sbatch]
             else:
                 b = r[i:]
-            # (64, 1, 28, 28) ... mnist
+
             images = torch.autograd.Variable(x[b], volatile=False)
             targets = torch.autograd.Variable(y[b], volatile=False)
-            # print(images.shape, targets.shape)
 
             # Forward
-            outputs = self.model.forward(images)
-            output = outputs[t]
-            loss = self.criterion(output, targets)
+            # outputs = self.model.forward(images)
+            # output = outputs[t]
 
             # Backward
-            self.optimizer.zero_grad()
-            loss.backward()
+            # self.optimizer.zero_grad()
+            # loss.backward()
+            # torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
+            # self.optimizer.step()
+
+            # Forward with PC
+            vhat, Loss, dLdy, v, epsilon = T2PC.PCInferCL_CIFAR5(t, self.taskinfo, self.model, self.criterion,
+                                                                 images, targets,
+                                                                 self.error_type, self.eta, self.iter)
+
+            # Backward with PC
             torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
             self.optimizer.step()
+
+            self.model.zero_grad()
+            self.optimizer.zero_grad()
 
         return
 
@@ -411,17 +386,29 @@ class ApprPlot(object):
             images = torch.autograd.Variable(x[b], volatile=True)
             targets = torch.autograd.Variable(y[b], volatile=True)
 
-            # Forward
-            outputs = self.model.forward(images)
-            output = outputs[t]  # (bs, 5)
-            loss = self.criterion(output, targets)
-            _, pred = output.max(1)
+            # from torchvision.utils import save_image, make_grid
+            # if i < 10:
+            #     path = '/home/jangho/data2/split_cifar10/image_task{}_{}.jpg'.format(t, i)
+            #     images_grid = make_grid(images)
+            #     save_image(images_grid, path)
+
+            # Forward with PC
+            outputs = self.model(images)
+
+            mask = T2PC.get_cifar_mask(self.taskinfo, t).cuda()
+
+            # calibrate target with task
+            targets = T2PC.get_cifar_target(self.taskinfo, t, targets).cuda()
+
+            outputs = mask * outputs
+
+            loss = self.criterion(outputs, targets)
+
+            _, pred = outputs.max(1)
             hits = (pred == targets).float()
 
             # Log
-            # total_loss+=loss.data.cpu().numpy()[0]*len(b)
             total_loss += loss.item() * len(b)  # jangho
-            # total_acc+=hits.sum().data.cpu().numpy()[0]
             total_acc += hits.sum()  # jangho
             total_num += len(b)
 

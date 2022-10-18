@@ -7,34 +7,34 @@ from sklearn.utils import shuffle
 
 
 def get(seed=0, pc_valid=0.10):
+    '''
+    make CIFAR-10 to five tasks randomly
+    '''
     data = {}
     taskcla = []
     size = [3, 32, 32]
 
-    data_dir = os.path.join('../dat/binary_cifar{}'.format(seed))
+    data_dir = os.path.join('../dat/binary_cifar_split5_{}'.format(seed))
     if not os.path.isdir(data_dir):
         print('create data dir: ', data_dir)
         os.makedirs(data_dir)
-
-    # original code
-    # if not os.path.isdir('../dat/binary_cifar_bp0/'):
-    #     os.makedirs('../dat/binary_cifar_bp0')
 
     mean = [x / 255 for x in [125.3, 123.0, 113.9]]
     std = [x / 255 for x in [63.0, 62.1, 66.7]]
 
     # CIFAR10
     dat = {}
-    dat['train'] = datasets.CIFAR10('../dat/',
+    dat['train'] = datasets.CIFAR10('../dat',
                                     train=True, download=True,
-                                    transform=transforms.Compose(
-                                        [transforms.ToTensor(),
-                                         transforms.Normalize(mean, std)]))
-    dat['test'] = datasets.CIFAR10('../dat/',
-                                   train=False, download=True,
-                                   transform=transforms.Compose(
-                                       [transforms.ToTensor(),
+                                    transform=transforms.Compose([
+                                        transforms.ToTensor(),
                                         transforms.Normalize(mean, std)]))
+    dat['test'] = datasets.CIFAR10('../dat,',
+                                   train=False, download=True,
+                                   transform=transforms.Compose([
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(mean, std)]))
+
     for n in range(5):
         data[n] = {}
         data[n]['name'] = 'cifar10'
@@ -49,25 +49,8 @@ def get(seed=0, pc_valid=0.10):
             data[nn][s]['x'].append(image)
             data[nn][s]['y'].append(n % 2)
 
-    # CIFAR100
-    dat = {}
-    dat['train'] = datasets.CIFAR100('../dat/', train=True, download=True, transform=transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]))
-    dat['test'] = datasets.CIFAR100('../dat/', train=False, download=True, transform=transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]))
-    for n in range(5, 10):
-        data[n] = {}
-        data[n]['name'] = 'cifar100'
-        data[n]['ncla'] = 20
-        data[n]['train'] = {'x': [], 'y': []}
-        data[n]['test'] = {'x': [], 'y': []}
-    for s in ['train', 'test']:
-        loader = torch.utils.data.DataLoader(dat[s], batch_size=1, shuffle=False)
-        for image, target in loader:
-            n = target.numpy()[0]
-            nn = (n // 20) + 5
-            data[nn][s]['x'].append(image)
-            data[nn][s]['y'].append(n % 20)
+    # print(data['train']['x'].shape, data['train']['y'].shape)
+    # print(data['test']['x'].shape, data['test']['y'].shape)
 
     # "Unify" and save
     for t in data.keys():
@@ -81,9 +64,9 @@ def get(seed=0, pc_valid=0.10):
 
     # Load binary files
     data = {}
-    ids = list(shuffle(np.arange(10), random_state=seed))
+    ids = list(shuffle(np.arange(5), random_state=seed))
     print('Task order =', ids)
-    for i in range(10):
+    for i in range(5):
         data[i] = dict.fromkeys(['name', 'ncla', 'train', 'test'])
         for s in ['train', 'test']:
             data[i][s] = {'x': [], 'y': []}

@@ -5,12 +5,20 @@ from copy import deepcopy
 
 import utils
 
+import TorchSeq2PC as T2PC
+
 
 class Appr(object):
     """ Class implementing the Learning Without Forgetting approach described in https://arxiv.org/abs/1606.09282 """
 
-    def __init__(self, model, nepochs=100, sbatch=64, lr=0.05, lr_min=1e-4, lr_factor=3, lr_patience=5, clipgrad=100,
+    def __init__(self, model,
+                 nepochs=100, sbatch=64,
+                 lr=0.05, lr_min=1e-4, lr_factor=3, lr_patience=5,
+                 clipgrad=100,
+                 error_type='FixedPred', eta=0.1, iter=20,
                  lamb=2, T=1, args=None):
+
+        self.args = args
         self.model = model
         self.model_old = None
 
@@ -21,6 +29,10 @@ class Appr(object):
         self.lr_factor = lr_factor
         self.lr_patience = lr_patience
         self.clipgrad = clipgrad
+
+        self.error_type = error_type
+        self.eta = eta
+        self.iter = iter
 
         self.ce = torch.nn.CrossEntropyLoss()
         self.optimizer = self._get_optimizer()
@@ -54,15 +66,16 @@ class Appr(object):
             clock1 = time.time()
             train_loss, train_acc = self.eval(t, xtrain, ytrain)
             clock2 = time.time()
-            print('| Epoch {:3d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.1f}% |'.format(e + 1,
-                                                                                                        1000 * self.sbatch * (
-                                                                                                                    clock1 - clock0) / xtrain.size(
-                                                                                                            0),
-                                                                                                        1000 * self.sbatch * (
-                                                                                                                    clock2 - clock1) / xtrain.size(
-                                                                                                            0),
-                                                                                                        train_loss,
-                                                                                                        100 * train_acc),
+            print('| Epoch {:3d}, time={:5.1f}ms/{:5.1f}ms '
+                  '| Train: loss={:.3f}, acc={:5.1f}% '
+                  '|'.format(e + 1,                             1000 * self.sbatch * (
+                                     clock1 - clock0) / xtrain.size(
+                                 0),
+                             1000 * self.sbatch * (
+                                     clock2 - clock1) / xtrain.size(
+                                 0),
+                             train_loss,
+                             100 * train_acc),
                   end='')
             # Valid
             valid_loss, valid_acc = self.eval(t, xvalid, yvalid)
@@ -83,6 +96,17 @@ class Appr(object):
                         break
                     patience = self.lr_patience
                     self.optimizer = self._get_optimizer(lr)
+
+            # save model
+            if e % self.args.save_freq == 0:
+                utils.save_checkpoint(self.args, {
+                    'epoch': e + 1,
+                    'arch': self.args.approach,
+                    'state_dict': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                }, is_best=True, filename='checkpoint_task{:02d}_{:04d}.pth.tar'.format(t, e))
+
+
             print()
 
         # Restore best and save model as old
@@ -90,6 +114,14 @@ class Appr(object):
         self.model_old = deepcopy(self.model)
         self.model_old.eval()
         utils.freeze_model(self.model_old)
+
+        # save best model
+        utils.save_checkpoint(self.args, {
+            'epoch': e + 1,
+            'arch': self.args.approach,
+            'state_dict': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+        }, is_best=True, filename='final_best_model.pth.tar')
 
         return
 
@@ -109,20 +141,45 @@ class Appr(object):
             images = torch.autograd.Variable(x[b], volatile=False)
             targets = torch.autograd.Variable(y[b], volatile=False)
 
+            # Forward with PC (old model)
+            # targets_old = None
+            # if t > 0:
+            #     vhat_old, Loss_old, dLdy_old, v_old, epsilon_old = T2PC.PCInferCLLWF(t, self.model_old, self.criterion,
+            #                                                      images, targets,
+            #                                                      self.error_type, self.eta, self.iter)
+            #
+            #     targets_old = vhat_old[-1]
+
+            # Forward with PC (model)
+            # targets_old = None
+            # if t > 0:
+            #     targets_old = self.model_old.forward(images)
+            #     print('target old: ', targets_old)
+            vhat, Loss, dLdy, v, epsilon = T2PC.PCInferCLLWF(t, self.model_old, self.model, self.criterion,
+                                                             images, targets,
+                                                             self.error_type, self.eta, self.iter)
+
             # Forward old model
-            targets_old = None
-            if t > 0:
-                targets_old = self.model_old.forward(images)
+            # targets_old = None
+            # if t > 0:
+            #     targets_old = self.model_old.forward(images)
 
             # Forward current model
-            outputs = self.model.forward(images)
-            loss = self.criterion(t, targets_old, outputs, targets)
+            # outputs = self.model.forward(images)
+            # loss = self.criterion(t, targets_old, outputs, targets)
 
             # Backward
-            self.optimizer.zero_grad()
-            loss.backward()
+            # self.optimizer.zero_grad()
+            # loss.backward()
+            # torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
+            # self.optimizer.step()
+
+            # Backward with PC
             torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clipgrad)
             self.optimizer.step()
+
+            self.model.zero_grad()
+            self.optimzier.zero_grad()
 
         return
 
@@ -170,7 +227,10 @@ class Appr(object):
 
         # Knowledge distillation loss for all previous tasks
         loss_dist = 0
+
         for t_old in range(0, t):
+            print('target old: ', targets_old)
+            print(outputs[t_old].shape, targets_old[t_old].shape)
             loss_dist += utils.cross_entropy(outputs[t_old], targets_old[t_old], exp=1 / self.T)
 
         # Cross entropy loss
